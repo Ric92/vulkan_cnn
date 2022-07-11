@@ -9,6 +9,7 @@
 #include <unordered_set>
 #include <vulkan/vulkan.h>
 #include <tensor.h>
+#include <vector>
 
 class Optimizer {
 protected:
