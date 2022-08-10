@@ -11,7 +11,7 @@ void Convolution::forward(VkQueue &queue) {
 
 void Convolution::forward_initialize(VkQueue &queue) {
 
-    std::vector<VkBuffer*> buffers{&weight.get_buffer(), &bias.get_buffer(), &output};
+    std::vector<VkBuffer*> buffers{&mWeight.get_buffer(), &mBias.get_buffer(), &output};
     allocateAndBindBuffers(device, physicalDevice, buffers, forwardDeviceMemory, forward_offsets);
 
     createPipelineLayout(device, 4, forwardSetLayout, forwardPipelineLayout, sizeof(dims));
@@ -24,40 +24,11 @@ void Convolution::forward_initialize(VkQueue &queue) {
 
     recordComputePipeline(forwardCommandBuffer, forwardPipelineLayout, sizeof(dims), reinterpret_cast<void*>(&dim),
             forwardPipeline,forwardDescriptorSet, (dim.batch_size+15)/16, (dim.output_dim+15)/16, 1);
-
-    // TODO: actual He-et-al initialization
-    char* data = nullptr;
-    if(vkMapMemory(device, forwardDeviceMemory, 0, VK_WHOLE_SIZE, 0, reinterpret_cast<void **>(&data)) != VK_SUCCESS){
-        throw std::runtime_error("failed to map device memory");
-    }
-
-    if(initializer == "He-et-al"){
-        float* weight = reinterpret_cast<float*>(data + forward_offsets[0]);
-        float* bias = reinterpret_cast<float*>(data + forward_offsets[1]);
-
-        for(int i = 0;i<dim.output_dim;i++){
-            bias[i] = 0;
-        }
-
-        std::random_device rd;
-        std::mt19937 gen(rd());
-        std::normal_distribution<float> dis(0.0, 2.0/dim.inp_dim);
-
-        for(int i = 0;i<dim.inp_dim;i++){
-            for(int j = 0;j<dim.output_dim;j++){
-                weight[i*dim.output_dim + j] = dis(gen);
-            }
-        }
-    } else {
-        throw std::invalid_argument("unknown initializer");
-    }
-    vkUnmapMemory(device, forwardDeviceMemory);
-
 }
 
 Convolution::Convolution(VkDevice device, uint32_t queueFamilyIndex, VkPhysicalDevice physicalDevice,
-        int batch_size, int input_dim, int output_dim, VkBuffer input, float scale, const std::string& initializer) {
-    this->scale = scale;
+        int batch_size, int input_dim, int output_dim, VkBuffer input, float mScale, const std::string& initializer) {
+    this->mScale = mScale;
 
     this->input = input;
     this->initializer = initializer;
@@ -69,23 +40,35 @@ Convolution::Convolution(VkDevice device, uint32_t queueFamilyIndex, VkPhysicalD
     this->queueFamilyIndex = queueFamilyIndex;
     this->physicalDevice = physicalDevice;
 
-    createBuffer(device, queueFamilyIndex, weight.get_buffer(), dim.inp_dim, dim.output_dim);
-    weight.set_height(dim.inp_dim);
-    weight.set_width(dim.output_dim);
+    createBuffer(device, queueFamilyIndex, mWeight.get_buffer(), dim.inp_dim, dim.output_dim);
+    mWeight.set_height(dim.inp_dim);
+    mWeight.set_width(dim.output_dim);
 
-    createBuffer(device, queueFamilyIndex, bias.get_buffer(), dim.output_dim, 1);
-    bias.set_height(dim.output_dim);
-    bias.set_width(1);
+    createBuffer(device, queueFamilyIndex, mBias.get_buffer(), dim.output_dim, 1);
+    mBias.set_height(dim.output_dim);
+    mBias.set_width(1);
 
     createBuffer(device, queueFamilyIndex, output, dim.batch_size, dim.output_dim);
 }
 
-Tensor &Convolution::get_bias() {
-    return bias;
+
+std::vector<std::vector<float>> Convolution::get_results(){
+    char *data = nullptr;
+    if(vkMapMemory(this->device, forwardDeviceMemory, 0, VK_WHOLE_SIZE, 0, reinterpret_cast<void**>(&data)) != VK_SUCCESS){
+        throw std::runtime_error("failed to map device memory");
+    }
+
+    uint32_t* p_labels = reinterpret_cast<uint32_t*>(data + forward_offsets[0]);
+
+    vkUnmapMemory(this->device, forwardDeviceMemory);
 }
 
-Tensor &Convolution::get_weight() {
-    return weight;
+Tensor &Convolution::get_bias() {
+    return mBias;
+}
+
+Tensor &Convolution::get_mWeight() {
+    return mWeight;
 }
 
 Convolution::~Convolution() {
@@ -94,8 +77,8 @@ Convolution::~Convolution() {
     vkFreeMemory(device, forwardDeviceMemory, nullptr);
 
     vkDestroyBuffer(device, output, nullptr);
-    vkDestroyBuffer(device, weight.get_buffer(), nullptr);
-    vkDestroyBuffer(device, bias.get_buffer(), nullptr);
+    vkDestroyBuffer(device, mWeight.get_buffer(), nullptr);
+    vkDestroyBuffer(device, mBias.get_buffer(), nullptr);
 
     vkDestroyDescriptorPool(device, forwardDescriptorPool, nullptr);
 

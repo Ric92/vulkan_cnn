@@ -18,8 +18,10 @@ int main(int argc, char** argv) {
     OLP OLP(x_dim, batch_size);
 
     OLP.forward_initialize();
+    std::cout<< "Initialized OLP" << std::endl;
 
-    // std::cout<<"accuracy after training: "<<OLP.evaluate(val_x, val_y)<<std::endl;
+    std::vector<std::vector<float>> img;
+    std::cout<<"accuracy after training: "<<OLP.evaluate(img)<<std::endl;
 
     return 0;
 }
